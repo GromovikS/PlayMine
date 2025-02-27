@@ -60,18 +60,27 @@ def mines_menu():
 
 @dp.message_handler(commands=["start"])
 async def send_welcome(message: types.Message):
-    await message.answer("Привет! Это бот для игры в «Мины». Нажми «Играть», чтобы начать. Разработчик: @OneDayBruh!", reply_markup=main_menu())
+    await message.answer("Привет! Это бот для игры в «Мины». Нажми «Играть» или введи `/play`, чтобы начать!", reply_markup=main_menu())
 
-@dp.message_handler(lambda message: message.text == "🎮 Играть")
+@dp.message_handler(commands=["play"])
 async def choose_mines(message: types.Message):
     await message.answer("Выберите количество бомб на поле:", reply_markup=mines_menu())
+
+@dp.message_handler(lambda message: message.text == "🎮 Играть")
+async def send_play_command(message: types.Message):
+    await choose_mines(message)
 
 @dp.callback_query_handler(lambda call: call.data.startswith("mines:"))
 async def start_game(call: types.CallbackQuery):
     num_mines = int(call.data.split(":")[1])
     chat_id = call.message.chat.id
+    user_id = call.from_user.id
 
-    games[chat_id] = {"data": generate_board(num_mines), "message_id": None}
+    games[chat_id] = {
+        "data": generate_board(num_mines),
+        "message_id": None,
+        "player_id": user_id
+    }
     board_view = games[chat_id]["data"][1]
     markup = create_board_markup(board_view)
 
@@ -85,10 +94,16 @@ async def open_cell(call: types.CallbackQuery):
     if chat_id not in games:
         return
     
+    game = games[chat_id]
+    
+    if call.from_user.id != game["player_id"]:
+        await call.answer("⛔ Это не ваша игра!", show_alert=True)
+        return
+
     _, x, y = call.data.split(":")
     x, y = int(x), int(y)
 
-    board, visible_board, mines = games[chat_id]["data"]
+    board, visible_board, mines = game["data"]
 
     if visible_board[y][x] != HIDDEN:
         await call.answer("Эта клетка уже открыта!", show_alert=True)
@@ -97,7 +112,7 @@ async def open_cell(call: types.CallbackQuery):
     if (x, y) in mines:
         visible_board[y][x] = MINE
         await call.message.answer("💥 Бум! Вы проиграли, не сдавайтесь и все будет бомбически!", reply_markup=main_menu())
-        await bot.delete_message(chat_id, games[chat_id]["message_id"])
+        await bot.delete_message(chat_id, game["message_id"])
         del games[chat_id]
         return
 
